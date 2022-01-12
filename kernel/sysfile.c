@@ -418,33 +418,36 @@ sys_exec(void)
   char path[MAXPATH], *argv[MAXARG];
   int i;
   uint64 uargv, uarg;
-
+/**
+ * 取寄存器a1的值到uargv中(即argv);
+ * 取a0存取的地址(即init函数地址),并调用fetchstr将路径存入path  */
   if(argstr(0, path, MAXPATH) < 0 || argaddr(1, &uargv) < 0){
     return -1;
   }
-  memset(argv, 0, sizeof(argv));
+  memset(argv, 0, sizeof(argv));//初始化字符串数组argv
   for(i=0;; i++){
     if(i >= NELEM(argv)){
       goto bad;
     }
+    //从虚拟地址 uargv+sizeof(uint64)*i 复制uint64(char*)到&uarg中
     if(fetchaddr(uargv+sizeof(uint64)*i, (uint64*)&uarg) < 0){
       goto bad;
     }
-    if(uarg == 0){
+    if(uarg == 0){//字符串数组结尾是NULL
       argv[i] = 0;
       break;
     }
-    argv[i] = kalloc();
+    argv[i] = kalloc();//argv[i]指向新分配的4KB的物理页
     if(argv[i] == 0)
       goto bad;
-    if(fetchstr(uarg, argv[i], PGSIZE) < 0)
+    if(fetchstr(uarg, argv[i], PGSIZE) < 0)//将uarg指向的字符串复制到argv[i]指向的物理页中
       goto bad;
   }
 
   int ret = exec(path, argv);
 
   for(i = 0; i < NELEM(argv) && argv[i] != 0; i++)
-    kfree(argv[i]);
+    kfree(argv[i]);//释放物理页资源
 
   return ret;
 

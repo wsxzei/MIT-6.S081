@@ -67,20 +67,23 @@ runcmd(struct cmd *cmd)
   if(cmd == 0)
     exit(1);
 
-  switch(cmd->type){
+  switch(cmd->type){//命令类型
   default:
     panic("runcmd");
 
   case EXEC:
     ecmd = (struct execcmd*)cmd;
-    if(ecmd->argv[0] == 0)
+    if(ecmd->argv[0] == 0)//若第0个参数为NULL，则直接退出
       exit(1);
-    exec(ecmd->argv[0], ecmd->argv);
+    exec(ecmd->argv[0], ecmd->argv);//调用exec执行程序
     fprintf(2, "exec %s failed\n", ecmd->argv[0]);
     break;
 
+  //重定向
   case REDIR:
     rcmd = (struct redircmd*)cmd;
+    //关闭指定描述符再打开文件，实现IO重定向
+    //区分fork和exec的原因是在子进程执行指定程序之前可以对子进程进行修改
     close(rcmd->fd);
     if(open(rcmd->file, rcmd->mode) < 0){
       fprintf(2, "open %s failed\n", rcmd->file);
@@ -97,24 +100,26 @@ runcmd(struct cmd *cmd)
     runcmd(lcmd->right);
     break;
 
+  //管道:command1 | command2 管道符|左边命令的输出就变成了右边命令的输入。
   case PIPE:
     pcmd = (struct pipecmd*)cmd;
     if(pipe(p) < 0)
       panic("pipe");
     if(fork1() == 0){
       close(1);
-      dup(p[1]);
+      dup(p[1]);//将管道的写端口拷贝到描述符1上，标准输出重定向到到管道写端口。
       close(p[0]);
       close(p[1]);
-      runcmd(pcmd->left);
+      runcmd(pcmd->left);//调用exec执行左侧命令
     }
     if(fork1() == 0){
-      close(0);
-      dup(p[0]);
+      close(0);//关闭标准输入
+      dup(p[0]);//将管道的读端口拷贝到描述符0上，标准输入重定向到到管道p[0]端。
       close(p[0]);
       close(p[1]);
-      runcmd(pcmd->right);
+      runcmd(pcmd->right);//调用exec执行右侧命令
     }
+  //子进程在完成工作后要关闭管道两端描述符，否则可能会导致对管道执行的read一直等待
     close(p[0]);
     close(p[1]);
     wait(0);
@@ -136,6 +141,7 @@ getcmd(char *buf, int nbuf)
   fprintf(2, "$ ");
   memset(buf, 0, nbuf);
   gets(buf, nbuf);
+  //gets 读取最多nbuf-1个字符，当遇到'\r'或'\n'时停止
   if(buf[0] == 0) // EOF
     return -1;
   return 0;
@@ -148,6 +154,7 @@ main(void)
   int fd;
 
   // Ensure that three file descriptors are open.
+  //shell保证任何时候都有三个打开的描述符，0,1,2是console的默认文件描述符
   while((fd = open("console", O_RDWR)) >= 0){
     if(fd >= 3){
       close(fd);
@@ -157,16 +164,16 @@ main(void)
 
   // Read and run input commands.
   while(getcmd(buf, sizeof(buf)) >= 0){
-    if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){
+    if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){//cd命令必须由父进程执行才能改变文件目录
       // Chdir must be called by the parent, not the child.
       buf[strlen(buf)-1] = 0;  // chop \n
       if(chdir(buf+3) < 0)
         fprintf(2, "cannot cd %s\n", buf+3);
       continue;
     }
-    if(fork1() == 0)
-      runcmd(parsecmd(buf));
-    wait(0);
+    if(fork1() == 0)//fork生成子进程，执行用户命令
+      runcmd(parsecmd(buf));//runcmd接受cmd结构指针，调用exec执行程序
+    wait(0);//父进程调用wait
   }
   exit(0);
 }
@@ -184,7 +191,7 @@ fork1(void)
   int pid;
 
   pid = fork();
-  if(pid == -1)
+  if(pid == -1)//出现错误
     panic("fork");
   return pid;
 }
@@ -313,9 +320,9 @@ peek(char **ps, char *es, char *toks)
   char *s;
 
   s = *ps;
-  while(s < es && strchr(whitespace, *s))
+  while(s < es && strchr(whitespace, *s))//寻找*ps指向的字符串中是否有" \t\r\n\v"中的空白字符
     s++;
-  *ps = s;
+  *ps = s;//**ps为空白字符或是字符串结尾空字符
   return *s && strchr(toks, *s);
 }
 
@@ -325,12 +332,12 @@ struct cmd *parseexec(char**, char*);
 struct cmd *nulterminate(struct cmd*);
 
 struct cmd*
-parsecmd(char *s)
+parsecmd(char *s)//解析命令行，换行符已经被替换为了'\0'
 {
   char *es;
   struct cmd *cmd;
 
-  es = s + strlen(s);
+  es = s + strlen(s);//es指向空字符
   cmd = parseline(&s, es);
   peek(&s, es, "");
   if(s != es){

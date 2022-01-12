@@ -14,13 +14,13 @@ wc(int fd, char *name)
   inword = 0;
   while((n = read(fd, buf, sizeof(buf))) > 0){
     for(i=0; i<n; i++){
-      c++;
+      c++;//文件总字符数
       if(buf[i] == '\n')
-        l++;
+        l++;//文件的行数
       if(strchr(" \r\t\n\v", buf[i]))
         inword = 0;
       else if(!inword){
-        w++;
+        w++;//文件中单词的数目
         inword = 1;
       }
     }
@@ -52,3 +52,7 @@ main(int argc, char *argv[])
   }
   exit(0);
 }
+/*
+linux> wc texput.log 
+21 105 716 texput.log   texput.log有21行、105个单词、共716字节
+*/

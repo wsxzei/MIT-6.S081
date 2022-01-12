@@ -76,9 +76,9 @@ kvminithart()
 //   30..38 -- 9 bits of level-2 index.
 //   21..29 -- 9 bits of level-1 index.
 //   12..20 -- 9 bits of level-0 index.
-//    0..11 -- 12 bits of byte offset within the page.
+//    0..11 -- 12 bits of byte offset within the page.  [0,11]位为页偏移
 pte_t *
-walk(pagetable_t pagetable, uint64 va, int alloc)
+walk(pagetable_t pagetable, uint64 va, int alloc)//三级页表的解析过程
 {
   if(va >= MAXVA)
     panic("walk");
@@ -87,14 +87,14 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
     pte_t *pte = &pagetable[PX(level, va)];
     if(*pte & PTE_V) {
       pagetable = (pagetable_t)PTE2PA(*pte);
-    } else {
-      if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)
+    } else { //下一级页表不存在,则会新建页表页
+      if(!alloc || (pagetable = (pde_t*)kalloc()) == 0) //kalloc用于分配4KB的物理页
         return 0;
       memset(pagetable, 0, PGSIZE);
       *pte = PA2PTE(pagetable) | PTE_V;
     }
   }
-  return &pagetable[PX(0, va)];
+  return &pagetable[PX(0, va)];//返回虚拟地址va对应的第三级页表条目的地址
 }
 
 // Look up a virtual address, return the physical address,
@@ -109,15 +109,16 @@ walkaddr(pagetable_t pagetable, uint64 va)
   if(va >= MAXVA)
     return 0;
 
-  pte = walk(pagetable, va, 0);
+  pte = walk(pagetable, va, 0);//pte为页表条目的地址
   if(pte == 0)
     return 0;
-  if((*pte & PTE_V) == 0)
+  //验证用户提供的虚拟地址属于进程的用户地址空间？防止对其它内存的访问
+  if((*pte & PTE_V) == 0)//是否是有效页(被缓存在内存中)
     return 0;
-  if((*pte & PTE_U) == 0)
+  if((*pte & PTE_U) == 0)//是否用户可以访问
     return 0;
   pa = PTE2PA(*pte);
-  return pa;
+  return pa;//返回物理地址
 }
 
 // add a mapping to the kernel page table.
@@ -374,14 +375,14 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
   uint64 n, va0, pa0;
 
   while(len > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
+    va0 = PGROUNDDOWN(srcva);     //将虚拟地址srcva的前log(PAGESIZE)位清空
+    pa0 = walkaddr(pagetable, va0);//获取va0对应的物理页的基址
     if(pa0 == 0)
       return -1;
     n = PGSIZE - (srcva - va0);
     if(n > len)
       n = len;
-    memmove(dst, (void *)(pa0 + (srcva - va0)), n);
+    memmove(dst, (void *)(pa0 + (srcva - va0)), n);//将物理内存上大小为n的数据复制到dst中
 
     len -= n;
     dst += n;
@@ -398,17 +399,17 @@ int
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
   uint64 n, va0, pa0;
-  int got_null = 0;
+  int got_null = 0;   //是否访问到字符串的null
 
   while(got_null == 0 && max > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
+    va0 = PGROUNDDOWN(srcva);       //将虚拟地址的前12位(4KB)设置为0
+    pa0 = walkaddr(pagetable, va0); //将虚拟地址va0翻译为物理地址pa0
     if(pa0 == 0)
       return -1;
-    n = PGSIZE - (srcva - va0);
+    n = PGSIZE - (srcva - va0);   //从页偏移开始，内存页剩余空间
     if(n > max)
       n = max;
-
+    //p为物理srcva对应的物理地址(物理页基址+页偏移)
     char *p = (char *) (pa0 + (srcva - va0));
     while(n > 0){
       if(*p == '\0'){
@@ -424,9 +425,9 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
       dst++;
     }
 
-    srcva = va0 + PGSIZE;
+    srcva = va0 + PGSIZE;//继续检查下一个虚拟页
   }
-  if(got_null){
+  if(got_null){//到达字符串结尾NULL，表示成功
     return 0;
   } else {
     return -1;

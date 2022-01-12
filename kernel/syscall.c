@@ -12,8 +12,9 @@ int
 fetchaddr(uint64 addr, uint64 *ip)
 {
   struct proc *p = myproc();
-  if(addr >= p->sz || addr+sizeof(uint64) > p->sz)
+  if(addr >= p->sz || addr+sizeof(uint64) > p->sz)//p->sz 为进程的内存
     return -1;
+  //从虚拟内存addr复制指针大小的数据到内核地址ip
   if(copyin(p->pagetable, (char *)ip, addr, sizeof(*ip)) != 0)
     return -1;
   return 0;
@@ -34,7 +35,7 @@ fetchstr(uint64 addr, char *buf, int max)
 static uint64
 argraw(int n)
 {
-  struct proc *p = myproc();
+  struct proc *p = myproc();//当前进程信息
   switch (n) {
   case 0:
     return p->trapframe->a0;
@@ -135,8 +136,8 @@ syscall(void)
   int num;
   struct proc *p = myproc();
 
-  num = p->trapframe->a7;
-  if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
+  num = p->trapframe->a7;//从trapframe取出寄存器a7的值作为syscalls的索引
+  if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {//验证索引是否合法
     p->trapframe->a0 = syscalls[num]();
   } else {
     printf("%d %s: unknown sys call %d\n",
