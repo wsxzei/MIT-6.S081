@@ -71,7 +71,7 @@ kalloc(void)
   struct run *r;
 
   acquire(&kmem.lock);
-  r = kmem.freelist;
+  r = kmem.freelist;//freelist为空闲链表的头结点
   if(r)
     kmem.freelist = r->next;
   release(&kmem.lock);
@@ -79,4 +79,13 @@ kalloc(void)
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
+}
+
+uint64 freemem(void){
+  uint64 cnt = 0;
+  struct run *p;
+  acquire(&kmem.lock);
+  for(p = kmem.freelist; p; p = p->next) cnt++;
+  release(&kmem.lock);
+  return cnt*PGSIZE;
 }

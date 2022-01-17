@@ -276,9 +276,12 @@ fork(void)
   np->sz = p->sz;
 
   np->parent = p;
-
+  
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
+  
+  // 复制系统调用掩码到子进程
+  np->mask = p->mask;
 
   // Cause fork to return 0 in the child.
   np->trapframe->a0 = 0;
@@ -692,4 +695,13 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+uint64 procnum(void){
+  struct proc *p;
+  uint64 cont = 0;
+  for(p = proc; p < &proc[NPROC]; p++) 
+    if(p->state != UNUSED)
+      cont++;
+  return cont;
 }

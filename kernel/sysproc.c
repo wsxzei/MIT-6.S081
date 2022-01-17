@@ -74,6 +74,18 @@ sys_sleep(void)
 }
 
 uint64
+sys_trace(void)
+{
+  int n;
+  struct proc *p = myproc();
+  //从寄存器a0中取出trace系统调用的参数
+  if(argint(0, &n) < 0) 
+    return -1;
+  p->mask = n;
+  return 0;
+}
+
+uint64
 sys_kill(void)
 {
   int pid;
