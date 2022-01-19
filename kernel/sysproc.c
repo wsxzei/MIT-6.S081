@@ -43,12 +43,26 @@ sys_sbrk(void)
 {
   int addr;
   int n;
-
+  struct proc *p = myproc();
   if(argint(0, &n) < 0)
     return -1;
   addr = myproc()->sz;
   if(growproc(n) < 0)
     return -1;
+  if(n > 0){
+    for(uint64 va = PGROUNDUP(addr); va < addr + n; va += PGSIZE){
+      pte_t *pte = walk(p->pagetable, va, 0);
+      uint64 pa = PTE2PA(*pte);
+      mappages(p->kpagetable, va, PGSIZE, pa, PTE_R|PTE_W|PTE_X);
+    }
+  }
+  else if(n < 0){
+    uint64 begin = PGROUNDDOWN(addr-1), end = PGROUNDDOWN(addr + n-1);
+    if(end < begin){
+      for(uint64 va = begin; va > end; va -= PGSIZE)
+        uvmunmap(p->kpagetable, va, 1, 0);
+    }
+  }
   return addr;
 }
 

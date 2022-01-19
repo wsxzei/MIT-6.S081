@@ -34,14 +34,14 @@ procinit(void)
       // Allocate a page for the process's kernel stack.
       // Map it high in memory, followed by an invalid
       // guard page.
-      char *pa = kalloc();
-      if(pa == 0)
-        panic("kalloc");
-      uint64 va = KSTACK((int) (p - proc));
-      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va;
+      // char *pa = kalloc();
+      // if(pa == 0)
+      //   panic("kalloc");
+      // uint64 va = KSTACK((int) (p - proc));
+      // kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+      // p->kstack = va;
   }
-  kvminithart();
+  // kvminithart();
 }
 
 // Must be called with interrupts disabled,
@@ -113,6 +113,22 @@ found:
     return 0;
   }
 
+  /*创建进程自己的内核页表*/
+  if((p->kpagetable = kvminit2()) == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+  /*在上面分配内核栈*/
+  char *pa = kalloc();
+  if(pa == 0) panic("kalloc kernel stack\n");
+  uint64 va = KSTACK(0);//内核栈虚拟地址
+  if(mappages(p->kpagetable, va, PGSIZE, (uint64)pa, PTE_R | PTE_W) < 0){
+    panic("mappages kernel stack\n");
+    return 0;
+  }
+  p->kstack = va;
+  
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -139,6 +155,15 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  if(p->kstack){
+    // printf("free kstack\n");
+    uvmunmap(p->kpagetable, p->kstack, 1, 1);
+    // printf("success free kstack\n");
+  }
+  p->kstack = 0;
+  if(p->kpagetable)
+    proc_freekpagetable(p->kpagetable);
+  p->kpagetable = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -150,6 +175,23 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+}
+
+//物理资源不需要释放,只需要将进程内核页表条目清除，释放页表页的物理资源即可
+void proc_freekpagetable(pagetable_t kpagetable){
+  int i;
+
+  for(i = 0; i < 512; i++){
+    pte_t pte = kpagetable[i];
+    kpagetable[i] = 0;
+    if((pte & PTE_V) && (pte & (PTE_R | PTE_W | PTE_X)) == 0){//非叶子
+      pagetable_t child = (pagetable_t)PTE2PA(pte);
+      proc_freekpagetable(child);
+    }else if(pte & PTE_V){//叶子不需要进行递归操作
+
+    }
+  }
+  kfree((void *)kpagetable);
 }
 
 // Create a user page table for a given process,
@@ -221,6 +263,11 @@ userinit(void)
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
 
+  //同时也映射到内核页表中
+  pte_t *pte = walk(p->pagetable, 0, 0);
+  uint64 pa = PTE2PA(*pte);
+  mappages(p->kpagetable, 0, PGSIZE, pa, PTE_R|PTE_W|PTE_X);
+
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
   p->trapframe->sp = PGSIZE;  // user stack pointer
@@ -273,6 +320,12 @@ fork(void)
     release(&np->lock);
     return -1;
   }
+  for(int va = 0; va < p->sz; va += PGSIZE){
+    pte_t *pte = walk(np->pagetable, va, 0);
+    uint64 pa = PTE2PA(*pte);
+    mappages(np->kpagetable, va, PGSIZE, pa, PTE_X|PTE_W|PTE_R);
+  }
+
   np->sz = p->sz;
 
   np->parent = p;
@@ -473,8 +526,12 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        w_satp(MAKE_SATP(p->kpagetable));
+        sfence_vma();
+  //swtch执行上下文切换，保存当前寄存器到c->context，然后从p->context加载寄存器的值
         swtch(&c->context, &p->context);
-
+        //在没有进程运行的时候，将进程内核页表切换为全局内核页表
+        kvminithart();
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
