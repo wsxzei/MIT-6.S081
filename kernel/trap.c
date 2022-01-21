@@ -77,12 +77,41 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  if(which_dev == 2){
+    if(p->interval && p->ticks % p->interval == 0 && p->isReturned){
+      p->isReturned = 0;
+      saveReg(p);
+      p->trapframe->epc = (uint64)p->handler;
+    }
+    p->ticks += 1;
     yield();
+  }
 
   usertrapret();
 }
 
+void saveReg(struct proc *p){
+  uint64 *src, *dst;
+  int i = 0;
+  src = (uint64 *)p->trapframe;
+  dst = (uint64 *)p->savedReg;
+  while(i < 36){
+    i++;
+    *dst = *src;
+    dst++;src++;
+  }
+}
+void loadReg(struct proc *p){
+  uint64 *src, *dst;
+  int i = 0;
+  src = (uint64 *)p->savedReg;
+  dst = (uint64 *)p->trapframe;
+  while(i < 36){
+    i++;
+    *dst = *src;
+    dst++;src++;
+  }
+}
 //
 // return to user space
 //
