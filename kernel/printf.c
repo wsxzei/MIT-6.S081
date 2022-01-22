@@ -132,3 +132,38 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+
+void backtrace(void){
+  uint64 fp = r_fp();
+  uint64 temp = fp;
+  printf("backtrace:\n");
+  while(temp < PGROUNDUP(fp)){
+    uint64 backaddr = *(uint64 *)(temp - 8);
+    temp = *(uint64 *)(temp - 16);
+    printf("%p\n", backaddr);
+  }
+}
+/*vm.c*/
+void printlevel(pagetable_t pagetable, int level){
+  int i;
+  for(i = 0; i < 512; i++){
+    uint64 *pte = &pagetable[i];
+    if(*pte & PTE_V){
+      uint64 *pointer = (uint64*)PTE2PA(*pte);
+      if(level == 2){
+        printf("..%d: pte %p pa %p\n", i, *pte, pointer);
+        printlevel((pagetable_t)PTE2PA(*pte), level - 1);
+      }else if(level == 1){
+        printf(".. ..%d: pte %p pa %p\n", i, *pte, pointer);
+        printlevel((pagetable_t)PTE2PA(*pte), level - 1);
+      }else if(level == 0){
+        printf(".. .. ..%d: pte %p pa %p\n", i, *pte, pointer);
+      }
+    }
+  }
+}
+
+void vmprint(pagetable_t pagetable){
+  printf("page table %p\n", pagetable);
+  printlevel(pagetable, 2);
+}

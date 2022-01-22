@@ -68,9 +68,29 @@ usertrap(void)
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
-    printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
-    printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
-    p->killed = 1;
+    if(r_scause() == 13 || r_scause() == 15){
+      uint64 errorAddr = r_stval();
+      uint64 mem;
+    //如果错误的地址小于sbrk分配的内存地址 且 这个地址不是在用户栈的保护页上
+      if(errorAddr < p->sz && 
+            PGROUNDUP(p->trapframe->sp) != PGROUNDDOWN(errorAddr) + 2*PGSIZE){
+          mem = (uint64)kalloc();
+        //成功分配物理内存页且成功将映射关系写入页表
+          if(mem && mappages(p->pagetable, PGROUNDDOWN(errorAddr),
+                  PGSIZE, mem, PTE_R|PTE_U|PTE_W|PTE_X) == 0){
+            memset((void *)mem, 0, PGSIZE);
+          }else{
+            if(mem) kfree((void *)mem);
+            p->killed = 1;//kalloc失败,杀死当前进程
+          }
+      }else {
+        p->killed = 1;
+      }
+    }else{
+      printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+      printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+      p->killed = 1;
+    }
   }
 
   if(p->killed)
@@ -144,6 +164,7 @@ kerneltrap()
     panic("kerneltrap: interrupts enabled");
 
   if((which_dev = devintr()) == 0){
+    // backtrace();
     printf("scause %p\n", scause);
     printf("sepc=%p stval=%p\n", r_sepc(), r_stval());
     panic("kerneltrap");

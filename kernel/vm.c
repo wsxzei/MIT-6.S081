@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -181,9 +183,9 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
+      continue;
     if((*pte & PTE_V) == 0)
-      panic("uvmunmap: not mapped");
+      continue;
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -294,8 +296,12 @@ freewalk(pagetable_t pagetable)
 void
 uvmfree(pagetable_t pagetable, uint64 sz)
 {
+  // printf("sz = %d\n", sz);
+  // vmprint(pagetable);
   if(sz > 0)
     uvmunmap(pagetable, 0, PGROUNDUP(sz)/PGSIZE, 1);
+  // printf("uvmfree pagetable\n");
+  // vmprint(pagetable);
   freewalk(pagetable);
 }
 
@@ -315,9 +321,11 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
+      continue;
+      // panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+      continue;
+      // panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)
@@ -359,8 +367,17 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
+    if(pa0 == 0){//对于还没分配的页面，如果地址小于sz，则分配物理页
+      if(va0 >= myproc()->sz)
+        return -1;
+      pa0 = (uint64)kalloc();
+      if(pa0 == 0) return -1;
+      memset((void *)pa0, 0, PGSIZE);
+      if(mappages(pagetable, va0, PGSIZE, pa0, PTE_R|PTE_X|PTE_W|PTE_U) < 0){
+        kfree((void*)pa0);
+        return -1;
+      }
+    }
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
@@ -384,8 +401,17 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
   while(len > 0){
     va0 = PGROUNDDOWN(srcva);
     pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
+    if(pa0 == 0){//对于还没分配的页面，如果地址小于sz，则分配物理页
+      if(myproc()->sz <= va0)
+        return -1;
+      pa0 = (uint64)kalloc();
+      if(pa0 == 0) return -1;
+      memset((void *)pa0, 0, PGSIZE);
+      if(mappages(myproc()->pagetable, va0, PGSIZE, pa0, PTE_R|PTE_U|PTE_W|PTE_X) < 0){
+        kfree((void*)pa0);
+        return -1;
+      }
+    }
     n = PGSIZE - (srcva - va0);
     if(n > len)
       n = len;

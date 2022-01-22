@@ -41,15 +41,29 @@ sys_wait(void)
 uint64
 sys_sbrk(void)
 {
-  int addr;
+  uint64 oldaddr, newaddr;
   int n;
-
+  struct proc *p;
+  p = myproc();
   if(argint(0, &n) < 0)
     return -1;
-  addr = myproc()->sz;
-  if(growproc(n) < 0)
+  oldaddr = p->sz;
+  newaddr = oldaddr + n;
+  if(n < 0){
+    //n绝对值比addr大，将进程的全部用户空间释放，新的大小为0
+    if(newaddr > oldaddr){
+      newaddr = 0;
+      uvmunmap(p->pagetable, 0, PGROUNDUP(oldaddr)/PGSIZE, 1);
+    }
+    else 
+      uvmunmap(p->pagetable, PGROUNDUP(newaddr), 
+          (PGROUNDUP(oldaddr)-PGROUNDUP(newaddr))/PGSIZE, 1);
+    
+  }else if(oldaddr + n >= MAXVA){//MAXVA为sbrk所能分配的最高地址2^38
     return -1;
-  return addr;
+  }
+  p->sz = newaddr;//n大于零，只增加进程大小而不分配内存(延迟分配)
+  return oldaddr;
 }
 
 uint64
