@@ -68,9 +68,42 @@ usertrap(void)
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
-    printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
-    printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
-    p->killed = 1;
+    if(r_scause() == 13 || r_scause() == 15){//发生缺页错误
+      uint64 errorAddr = r_stval();//读取错误的地址
+      uint64 mem, pa, flags;
+      pte_t *pte;
+      // printf("erroraddr %p\tp->sz = %p\n", errorAddr, p->sz);
+      if(errorAddr < p->sz &&
+            PGROUNDUP(p->trapframe->sp) != PGROUNDDOWN(errorAddr) + 2*PGSIZE){
+        pte = walk(p->pagetable, errorAddr, 0);
+        if(pte && (*pte & PTE_COW)){
+          pa = PTE2PA(*pte);
+          if((mem = (uint64)kalloc()) == 0){  //没有空闲的物理内存块了，杀死进程
+            printf("No free mem\n");
+            p->killed = 1;
+          }
+          else{
+            flags = (PTE_FLAGS(*pte)& ~PTE_COW)|PTE_W;
+            memmove((void *)mem, (char *)pa, PGSIZE);
+            uvmunmap(p->pagetable, PGROUNDDOWN(errorAddr), 1, 1);
+            mappages(p->pagetable, PGROUNDDOWN(errorAddr), PGSIZE, mem, flags);
+          }
+        }else{    //页面错误或不是COW页面，杀死进程
+          printf("No PTE_COW\n");
+          p->killed = 1;
+        }
+      }else{ 
+        printf("erroraddr error\n");
+        p->killed = 1;
+      }
+    }else{
+      printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+      printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+      p->killed = 1;
+    }    
+    // printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+    // printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+    // p->killed = 1;
   }
 
   if(p->killed)

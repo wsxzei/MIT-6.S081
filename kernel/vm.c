@@ -15,6 +15,7 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
 
+int refcount[MAXPGNUM];//COW页面引用计数 (pa-KERNBASE)/PGSIZE来索引
 /*
  * create a direct-map page table for the kernel.
  */
@@ -159,6 +160,8 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
     if(*pte & PTE_V)
       panic("remap");
     *pte = PA2PTE(pa) | perm | PTE_V;
+    if(pa >= KERNBASE)//kvminit会映射小于KERNBASE的物理地址，这时候不需要增加引用计数
+      refcount[PA2INDEX(pa)] += 1;
     if(a == last)
       break;
     a += PGSIZE;
@@ -186,10 +189,15 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: not mapped");
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
-    if(do_free){
-      uint64 pa = PTE2PA(*pte);
-      kfree((void*)pa);
-    }
+    // if(do_free){
+    //   uint64 pa = PTE2PA(*pte);
+    //   kfree((void*)pa);
+    // }
+    // *pte = 0;
+    uint64 pa = PTE2PA(*pte);
+    refcount[PA2INDEX(pa)] -= 1;//解除页表饮用，引用计数减少1
+    if(do_free && refcount[PA2INDEX(pa)] == 1)//如果只有内核页表映射了物理页，引用计数为1
+        kfree((void*)pa);
     *pte = 0;
   }
 }
@@ -311,7 +319,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+  // char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -320,11 +328,13 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    flags = (flags & ~PTE_W)|PTE_COW;//更改父进程的标志位,去掉可写,增加PTE_COW
+    *pte = PA2PTE(pa) | flags;
+    // if((mem = kalloc()) == 0)
+    //   goto err;
+    // memmove(mem, (char*)pa, PGSIZE);
+    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
+      // kfree(mem);
       goto err;
     }
   }
@@ -355,16 +365,37 @@ int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
-
+  uint64 mem, flags;
+  pte_t *pte;
   while(len > 0){
+    if(dstva>= MAXVA) return -1;//测试案例中有超出MAXVA的虚拟地址
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
+    pte = walk(pagetable, va0, 0);
+    if(pa0 == 0 || pa0 < KERNBASE)
       return -1;
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
-    memmove((void *)(pa0 + (dstva - va0)), src, n);
+    if(*pte & PTE_COW){
+      if((mem = (uint64)kalloc()) == 0){//如果mem==0,没有内存可以分配
+          printf("copyout no free memory\n");
+          return -1;
+      }
+      else{
+        flags = (PTE_FLAGS(*pte)& ~PTE_COW)|PTE_W;//设置标记位为可写
+        memmove((void *)mem, (char *)pa0, PGSIZE);//复制原始物理页上的内容到新的页面上
+        memmove((void *)(mem +(dstva - va0)), src, n);//将src上指定内容复制到用户空间
+        uvmunmap(pagetable, va0, 1, 1);
+        mappages(pagetable, va0, PGSIZE, mem, flags);
+      }
+    }else if(*pte & PTE_W){//不是COW页且可写,直接复制
+      memmove((void *)(pa0 + (dstva - va0)), src, n);
+    }else{//页面不可写也不是COW页面，出错
+      printf("page can't write\n");
+      return -1;
+    }
+    // memmove((void *)(pa0 + (dstva - va0)), src, n);
 
     len -= n;
     src += n;
