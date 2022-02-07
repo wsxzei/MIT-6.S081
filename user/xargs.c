@@ -8,7 +8,7 @@ int main(int argc, char **argv)
     int argnum = 0, i = 0;//argnum为输入文本的行数，决定了xargs的运行次数
     char buf[512], *p = buf;
     while(read(0, p, 1) > 0){
-        if(*p == '\n'){
+        if(*p == '\n' || *p == ' '){
             *p = '\0';
             argnum++;
         }
