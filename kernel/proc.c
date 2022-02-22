@@ -184,13 +184,14 @@ proc_pagetable(struct proc *p)
   // to/from user space, so not PTE_U.
   if(mappages(pagetable, TRAMPOLINE, PGSIZE,
               (uint64)trampoline, PTE_R | PTE_X) < 0){
-    uvmfree(pagetable, 0);
+    uvmfree(pagetable, 0);//释放用户内存页和页表页,如果sz==0，则只释放页表页
     return 0;
   }
 
   // map the trapframe just below TRAMPOLINE, for trampoline.S.
   if(mappages(pagetable, TRAPFRAME, PGSIZE,
               (uint64)(p->trapframe), PTE_R | PTE_W) < 0){
+  //如果TRAMPOLINE映射不成功,则解除之前映射的TRAMPOLINE页;不能释放对应物理资源，因为是这个物理页是进程间共享?
     uvmunmap(pagetable, TRAMPOLINE, 1, 0);
     uvmfree(pagetable, 0);
     return 0;
@@ -479,7 +480,7 @@ sched(void)
 
   if(!holding(&p->lock))
     panic("sched p->lock");
-  if(mycpu()->noff != 1)
+  if(mycpu()->noff != 1)//需要释放除进程锁之外的其他锁
     panic("sched locks");
   if(p->state == RUNNING)
     panic("sched running");
@@ -536,7 +537,7 @@ sleep(void *chan, struct spinlock *lk)
   // guaranteed that we won't miss any wakeup
   // (wakeup locks p->lock),
   // so it's okay to release lk.
-
+//lk不能在进程锁获取前释放,在此期间可能wakeup会执行并且能获取进程锁,导致唤醒丢失
   acquire(&p->lock);  //DOC: sleeplock1
   release(lk);
 

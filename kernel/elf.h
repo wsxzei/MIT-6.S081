@@ -24,13 +24,13 @@ struct elfhdr {
 // Program section header
 struct proghdr {
   uint32 type;
-  uint32 flags;
-  uint64 off;
-  uint64 vaddr;
-  uint64 paddr;
-  uint64 filesz;
-  uint64 memsz;
-  uint64 align;
+  uint32 flags;//权限:读/写/执行
+  uint64 off;   //节的位置相对elf文件头的偏移
+  uint64 vaddr; //被映射到虚拟地址vaddr
+  uint64 paddr; //物理地址
+  uint64 filesz;//文件大小(可能小于内存大小memsz)因为存在未初始化的全局变量
+  uint64 memsz;//在内存中的大小
+  uint64 align;//对齐方式
 };
 
 // Values for Proghdr type

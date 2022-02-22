@@ -32,6 +32,7 @@ exec(char *path, char **argv)
   // Check ELF header
   if(readi(ip, 0, (uint64)&elf, 0, sizeof(elf)) != sizeof(elf))
     goto bad;
+//检查elf文件头的魔数是否正确,如果是则二进制文件是格式良好
   if(elf.magic != ELF_MAGIC)
     goto bad;
 
@@ -49,6 +50,7 @@ exec(char *path, char **argv)
     if(ph.vaddr + ph.memsz < ph.vaddr)
       goto bad;
     uint64 sz1;
+    //ph.vaddr若小于sz，pagetable中没有相关条目翻译为物理地址？
     if((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz)) == 0)
       goto bad;
     sz = sz1;
@@ -68,7 +70,7 @@ exec(char *path, char **argv)
   // Use the second as the user stack.
   sz = PGROUNDUP(sz);
   uint64 sz1;
-  if((sz1 = uvmalloc(pagetable, sz, sz + 2*PGSIZE)) == 0)
+  if((sz1 = uvmalloc(pagetable, sz, sz + 2*PGSIZE)) == 0)//分配的两个页面中一个作为保护页
     goto bad;
   sz = sz1;
   uvmclear(pagetable, sz-2*PGSIZE);
@@ -85,12 +87,12 @@ exec(char *path, char **argv)
       goto bad;
     if(copyout(pagetable, sp, argv[argc], strlen(argv[argc]) + 1) < 0)
       goto bad;
-    ustack[argc] = sp;
+    ustack[argc] = sp;//ustack数组中存储的是用户空间的char*
   }
-  ustack[argc] = 0;
+  ustack[argc] = 0;//ustack以NULL结尾
 
   // push the array of argv[] pointers.
-  sp -= (argc+1) * sizeof(uint64);
+  sp -= (argc+1) * sizeof(uint64);//argc个参数字符串指针加上结尾的NULL指针
   sp -= sp % 16;
   if(sp < stackbase)
     goto bad;
@@ -100,18 +102,19 @@ exec(char *path, char **argv)
   // arguments to user main(argc, argv)
   // argc is returned via the system call return
   // value, which goes in a0.
-  p->trapframe->a1 = sp;
+  p->trapframe->a1 = sp;//main的第二个参数 char *argv[]
 
   // Save program name for debugging.
-  for(last=s=path; *s; s++)
+  for(last=s=path; *s; s++)//path和p->name均为内核模式下的字符串
     if(*s == '/')
       last = s+1;
-  safestrcpy(p->name, last, sizeof(p->name));
+  safestrcpy(p->name, last, sizeof(p->name));//将进程的名称修改为可执行文件名
     
   // Commit to the user image.
   oldpagetable = p->pagetable;
   p->pagetable = pagetable;
   p->sz = sz;
+  //系统调用返回地址不是exec的下一条指令，而是elf文件的入口点
   p->trapframe->epc = elf.entry;  // initial program counter = main
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);

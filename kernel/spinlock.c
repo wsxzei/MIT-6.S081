@@ -91,9 +91,9 @@ push_off(void)
   int old = intr_get();
 
   intr_off();
-  if(mycpu()->noff == 0)
+  if(mycpu()->noff == 0)//如果这是最外层的临界段嵌套,记录CPU是否禁用中断
     mycpu()->intena = old;
-  mycpu()->noff += 1;
+  mycpu()->noff += 1;//每获得一个自旋锁,嵌套级别加1
 }
 
 void
@@ -102,9 +102,10 @@ pop_off(void)
   struct cpu *c = mycpu();
   if(intr_get())
     panic("pop_off - interruptible");
-  if(c->noff < 1)
+  if(c->noff < 1)//当前没有嵌套，显然是错误的
     panic("pop_off");
-  c->noff -= 1;
+  c->noff -= 1;//释放当前的锁，嵌套级别减一
+//如果CPU已经没有持有锁，且进入最外层临界区之前是启用中断的，就恢复中断
   if(c->noff == 0 && c->intena)
     intr_on();
 }

@@ -20,7 +20,7 @@ struct run {
 
 struct {
   struct spinlock lock;
-  struct run *freelist;
+  struct run *freelist;//freelist为run结构体为节点的链表的头结点，指向空闲页中第一个页面
 } kmem;
 
 void
@@ -34,7 +34,7 @@ void
 freerange(void *pa_start, void *pa_end)
 {
   char *p;
-  p = (char*)PGROUNDUP((uint64)pa_start);
+  p = (char*)PGROUNDUP((uint64)pa_start);//p若为第n个页中,p为第n+1个页的基址
   for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
     kfree(p);
 }
@@ -57,7 +57,7 @@ kfree(void *pa)
   r = (struct run*)pa;
 
   acquire(&kmem.lock);
-  r->next = kmem.freelist;
+  r->next = kmem.freelist;//将新释放的物理页插入链表头结点
   kmem.freelist = r;
   release(&kmem.lock);
 }
@@ -71,7 +71,7 @@ kalloc(void)
   struct run *r;
 
   acquire(&kmem.lock);
-  r = kmem.freelist;
+  r = kmem.freelist;//将链表头结点指向的物理页分配出去
   if(r)
     kmem.freelist = r->next;
   release(&kmem.lock);

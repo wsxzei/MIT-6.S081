@@ -113,7 +113,7 @@ walkaddr(pagetable_t pagetable, uint64 va)
   if(pte == 0)
     return 0;
   //验证用户提供的虚拟地址属于进程的用户地址空间？防止对其它内存的访问
-  if((*pte & PTE_V) == 0)//是否是有效页(被缓存在内存中)
+  if((*pte & PTE_V) == 0)//是否是有效页(页面是否被分配)
     return 0;
   if((*pte & PTE_U) == 0)//是否用户可以访问
     return 0;
@@ -228,6 +228,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
     return oldsz;
 
   oldsz = PGROUNDUP(oldsz);
+  //进程内存从虚拟地址0开始，因此oldsz就是旧的堆顶的虚拟地址
   for(a = oldsz; a < newsz; a += PGSIZE){
     mem = kalloc();
     if(mem == 0){
@@ -235,8 +236,9 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
       return 0;
     }
     memset(mem, 0, PGSIZE);
+   //将a作为虚拟地址关联物理地址mem，并设置标志位
     if(mappages(pagetable, a, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
-      kfree(mem);
+      kfree(mem);//映射不成功则释放该页
       uvmdealloc(pagetable, a, oldsz);
       return 0;
     }

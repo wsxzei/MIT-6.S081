@@ -84,6 +84,7 @@ fileclose(struct file *f)
 
 // Get metadata about file f.
 // addr is a user virtual address, pointing to a struct stat.
+// 得到文件f的元数据；addr是一个用户空间虚拟地址，指向一个stat结构体
 int
 filestat(struct file *f, uint64 addr)
 {
@@ -92,8 +93,10 @@ filestat(struct file *f, uint64 addr)
   
   if(f->type == FD_INODE || f->type == FD_DEVICE){
     ilock(f->ip);
-    stati(f->ip, &st);
+//f->ip 为文件的inode结构体指针，该结构体包含stat结构中的大多数信息(例如文件类型type和大小size)
+    stati(f->ip, &st);//将inode结构体的字段复制给stat结构体
     iunlock(f->ip);
+//将stat结构体从内核空间复制到用户空间虚拟地址addr上(需要对页表pagetable进行查询)
     if(copyout(p->pagetable, addr, (char *)&st, sizeof(st)) < 0)
       return -1;
     return 0;

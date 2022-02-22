@@ -18,6 +18,7 @@
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
+// 取第n个系统调用参数作为文件描述符，返回描述符和对应的的file结构体
 static int
 argfd(int n, int *pfd, struct file **pf)
 {
@@ -26,12 +27,13 @@ argfd(int n, int *pfd, struct file **pf)
 
   if(argint(n, &fd) < 0)
     return -1;
+//ofile[fd] == 0 表示fd不对应一个打开的文件表项，NOFILE为一个进程打开文件的最大数目
   if(fd < 0 || fd >= NOFILE || (f=myproc()->ofile[fd]) == 0)
     return -1;
   if(pfd)
     *pfd = fd;
   if(pf)
-    *pf = f;
+    *pf = f;//pf中存取file结构体的指针
   return 0;
 }
 
@@ -109,8 +111,8 @@ sys_fstat(void)
 {
   struct file *f;
   uint64 st; // user pointer to struct stat
-
-  if(argfd(0, 0, &f) < 0 || argaddr(1, &st) < 0)
+//argfd(0, 0, &f)从寄存器a0中取出描述符，并将对应的file结构体指针存入f
+  if(argfd(0, 0, &f) < 0 || argaddr(1, &st) < 0)//st存取用户空间传递的虚拟地址
     return -1;
   return filestat(f, st);
 }
